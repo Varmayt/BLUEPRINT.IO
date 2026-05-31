@@ -1,7 +1,7 @@
 // Blueprint.io Main Application Logic
 
 // --- Constants ---
-const DEFAULT_API_KEY = 'AIzaSyAmk12StmZU9kgzS4tn9kTa5xw6XdF8Y-Y';
+// No default API key, users must connect their own key in Configuration settings
 
 // --- Elements ---
 const chatForm = document.getElementById('chat-form');
@@ -88,7 +88,7 @@ function updateConfigUI() {
     disconnectConfigBtn.classList.remove('hidden');
   } else {
     apiKeyInput.value = '';
-    configStatusText.innerHTML = `Currently using the <b>Default System API Key</b>. You can optionally connect your personal Gemini API key to avoid shared rate limits.`;
+    configStatusText.innerHTML = `No API key connected. Please add your personal Gemini API key to generate C4 diagrams. <a href="https://aistudio.google.com/" target="_blank" style="color: var(--accent-secondary); text-decoration: underline;">Get free key from Google AI Studio</a>.`;
     disconnectConfigBtn.classList.add('hidden');
   }
 }
@@ -305,6 +305,13 @@ btnFollowupYes.addEventListener('click', () => {
 chatForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   
+  if (!personalApiKey) {
+    addMessage("⚠️ API Key required. Please connect your Gemini API Key in the settings (gear icon in the top right) to generate diagrams.", false);
+    configModal.classList.remove('hidden');
+    apiKeyInput.focus();
+    return;
+  }
+  
   let promptToUse = promptInput.value.trim();
   if (isUsingSavedPd) {
     promptToUse = lastProjectDescription;
@@ -382,9 +389,9 @@ chatForm.addEventListener('submit', async (e) => {
 });
 
 // --- Generation API ---
-// Uses personal API key if provided, otherwise falls back to the default API key
+// Uses personal API key configured in settings
 async function generateC4DiagramXml(prompt, level) {
-  const activeKey = personalApiKey || DEFAULT_API_KEY;
+  const activeKey = personalApiKey;
   
   let levelSpecificInstructions = '';
   switch(level) {
@@ -467,7 +474,7 @@ Return ONLY the raw <mxGraphModel>...</mxGraphModel> XML, without markdown forma
 }
 
 async function analyzeUserInput(prompt) {
-  const activeKey = personalApiKey || DEFAULT_API_KEY;
+  const activeKey = personalApiKey;
   
   const analysisInstruction = `You are a helpful AI assistant for Blueprint.io, an architecture diagram generator.
 The user has submitted a message without selecting a diagram level.
@@ -987,6 +994,7 @@ window.addEventListener('load', () => {
     joinCollabRoom(roomParam);
   }
 });
+
 
 
 
