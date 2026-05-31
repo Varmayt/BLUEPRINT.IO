@@ -1,0 +1,13 @@
+{
+  "name": "blueprint-io",
+  "version": "1.0.0",
+  "description": "Blueprint.io - Dynamic C4 Diagram Generator",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

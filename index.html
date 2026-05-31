@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blueprint.io - Dynamic C4 Diagram Generator</title>
+  <meta name="description" content="Generate beautiful C4 diagrams from text prompts using AI.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="glass-header">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#paint0_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 17L12 22L22 17" stroke="url(#paint1_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 12L12 17L22 12" stroke="url(#paint2_linear)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="paint0_linear" x1="2" y1="7" x2="22" y2="7" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#8B5CF6"/>
+              <stop offset="1" stop-color="#3B82F6"/>
+            </linearGradient>
+            <linearGradient id="paint1_linear" x1="2" y1="19.5" x2="22" y2="19.5" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#8B5CF6"/>
+              <stop offset="1" stop-color="#3B82F6"/>
+            </linearGradient>
+            <linearGradient id="paint2_linear" x1="2" y1="14.5" x2="22" y2="14.5" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#8B5CF6"/>
+              <stop offset="1" stop-color="#3B82F6"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <h1>Blueprint.io</h1>
+      </div>
+      <div class="header-actions">
+        <button id="import-btn" class="icon-btn" title="Import Local Repository">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            <line x1="12" y1="11" x2="12" y2="17"></line>
+            <polyline points="9 14 12 11 15 14"></polyline>
+          </svg>
+        </button>
+        <button id="collab-btn" class="icon-btn" title="Real-time Collaboration">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+        </button>
+        <button id="git-sync-btn" class="icon-btn" title="GitHub Sync & CI/CD">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+          </svg>
+        </button>
+        <button id="config-btn" class="icon-btn" title="Configure API Key">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"></path>
+            <path d="M19.4 15A1.65 1.65 0 0 0 21 16.65V17.35A1.65 1.65 0 0 1 19.35 19H18.65A1.65 1.65 0 0 0 17 20.65V21.35A1.65 1.65 0 0 1 15.35 23H14.65A1.65 1.65 0 0 0 13 21.35V20.65A1.65 1.65 0 0 1 11.35 19H10.65A1.65 1.65 0 0 0 9 20.65V21.35A1.65 1.65 0 0 1 7.35 23H6.65A1.65 1.65 0 0 0 5 21.35V20.65A1.65 1.65 0 0 1 3.35 19H2.65A1.65 1.65 0 0 0 1 17.35V16.65A1.65 1.65 0 0 1 2.65 15H3.35A1.65 1.65 0 0 0 5 13.35V12.65A1.65 1.65 0 0 1 3.35 11H2.65A1.65 1.65 0 0 0 1 9.35V8.65A1.65 1.65 0 0 1 2.65 7H3.35A1.65 1.65 0 0 0 5 5.35V4.65A1.65 1.65 0 0 1 6.65 3H7.35A1.65 1.65 0 0 0 9 4.65V5.35A1.65 1.65 0 0 1 10.65 7H11.35A1.65 1.65 0 0 0 13 5.35V4.65A1.65 1.65 0 0 1 14.65 3H15.35A1.65 1.65 0 0 0 17 4.65V5.35A1.65 1.65 0 0 1 18.65 7H19.35A1.65 1.65 0 0 0 21 8.65V9.35A1.65 1.65 0 0 1 19.35 11H18.65A1.65 1.65 0 0 0 17 12.65V13.35A1.65 1.65 0 0 1 18.65 15H19.4Z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <!-- Left Panel: Chat Input -->
+      <aside class="chat-panel">
+        <div class="chat-history" id="chat-history">
+          <div class="message system-message">
+            <div class="avatar system-avatar">✨</div>
+            <div class="message-bubble">
+              Hello! I'm your Blueprint.io architect. Describe your project architecture, and I'll generate a C4 diagram for you.
+            </div>
+          </div>
+        </div>
+        
+        <div class="input-container">
+          <div class="level-selector-container">
+            <label for="c4-level-select">Diagram Level:</label>
+            <select id="c4-level-select" class="glass-select">
+              <option value="none" selected>Select Diagram Level...</option>
+              <option value="context">Level 1: System Context</option>
+              <option value="container">Level 2: Container</option>
+              <option value="component">Level 3: Component</option>
+              <option value="code">Level 4: Code</option>
+              <option value="kubernetes">Kubernetes Visualization</option>
+            </select>
+          </div>
+          <input type="file" id="repo-import-input" webkitdirectory directory multiple class="hidden">
+          <form id="chat-form" class="glass-form">
+            <textarea id="prompt-input" placeholder="e.g. A user connects to a React frontend, which talks to a Node.js backend..." rows="3" required></textarea>
+            <div id="saved-project-overlay" class="hidden" style="flex:1; display:flex; align-items:center; padding:8px; font-size:0.9rem; color:var(--text-primary);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" style="margin-right: 8px;">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Using saved project description. Select a level and hit Generate!</span>
+            </div>
+            <button type="submit" class="submit-btn" id="submit-btn" title="Generate Diagram">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+
+          <div id="followup-prompt" class="hidden" style="margin-top: 12px; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.4); border: 1px solid var(--glass-border); display: flex; align-items: center; justify-content: space-between;">
+             <span style="font-size: 0.95rem; color: var(--text-primary);">Generate another diagram level for this project?</span>
+             <div style="display: flex; gap: 12px;">
+               <button id="btn-followup-yes" class="primary-btn" style="padding: 6px 16px; font-size: 0.85rem;">Yes</button>
+               <button id="btn-followup-no" class="secondary-btn" style="padding: 6px 16px; font-size: 0.85rem;">No</button>
+             </div>
+          </div>
+
+          <div class="loading-indicator" id="loading-indicator">
+            <div class="spinner"></div>
+            <span>Designing architecture...</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right Panel: Output -->
+      <main class="output-panel">
+        <div class="tabs">
+          <button class="tab-btn active" data-target="diagram-view">C4 Diagram</button>
+          <button class="tab-btn" data-target="xml-view">XML Code</button>
+        </div>
+
+        <div class="tab-content active" id="diagram-view">
+          <div class="diagram-toolbar hidden" id="diagram-toolbar">
+            <button id="download-btn" class="icon-btn" title="Download .drawio file">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download</span>
+            </button>
+            <button id="fullscreen-btn" class="icon-btn" title="Toggle Fullscreen">
+              <svg id="fullscreen-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+            </button>
+          </div>
+          <div class="empty-state" id="diagram-empty-state">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            <p>Your diagram will appear here</p>
+          </div>
+          <!-- Draw.io iframe will be injected here or managed here -->
+          <iframe id="drawio-iframe" class="hidden" src="https://embed.diagrams.net/?embed=1&proto=json&ui=min&spin=1&noSaveBtn=1&noExitBtn=1" frameborder="0"></iframe>
+        </div>
+
+        <div class="tab-content" id="xml-view">
+          <div class="code-container">
+            <button id="copy-xml-btn" class="icon-btn copy-btn" title="Copy XML">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+            <pre><code id="xml-output">No XML generated yet.</code></pre>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- API Key Modal -->
+    <div id="config-modal" class="modal hidden">
+      <div class="modal-content glass-panel">
+        <h2>Configuration</h2>
+        <p id="config-status-text">Please enter your personal Gemini API key to generate diagrams. You can get a free key from Google AI Studio.</p>
+        <div class="form-group">
+          <label for="api-key-input">Gemini API Key</label>
+          <input type="text" id="api-key-input" placeholder="AIzaSy..." autocomplete="off" />
+          <span id="api-key-error" class="hidden" style="color: var(--error); font-size: 0.8rem; margin-top: 4px;">Invalid API Key. Please check and try again.</span>
+        </div>
+        <div class="modal-actions">
+          <button id="disconnect-config-btn" class="secondary-btn hidden" style="color: var(--error); border-color: rgba(239, 68, 68, 0.3);">Disconnect Key</button>
+          <button id="close-config-btn" class="secondary-btn">Cancel</button>
+          <button id="save-config-btn" class="primary-btn">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collaboration Floating Panel -->
+    <div id="collab-panel" class="collab-panel glass-panel hidden">
+      <div class="collab-header">
+        <h3>Real-time Collaboration</h3>
+        <button id="close-collab-btn" class="icon-btn">&times;</button>
+      </div>
+      <div class="collab-body">
+        <div class="collab-status">
+          <span class="status-dot disconnected" id="collab-status-dot"></span>
+          <span id="collab-status-text">Disconnected</span>
+        </div>
+        
+        <div id="collab-setup-section">
+          <p>Create or join a collaboration room to edit architecture diagrams with teammates in real-time.</p>
+          <button id="start-collab-btn" class="primary-btn" style="width: 100%; margin-top: 12px;">Create Collab Room</button>
+        </div>
+        
+        <div id="collab-info-section" class="hidden">
+          <div class="form-group" style="margin-top: 10px;">
+            <label>Invite Link</label>
+            <div class="input-with-btn" style="display: flex;">
+              <input type="text" id="collab-link-input" readonly style="width: calc(100% - 40px); background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border); border-radius: 8px 0 0 8px; padding: 10px; color: var(--text-primary); font-family: inherit; font-size: 0.85rem;" />
+              <button id="copy-collab-link-btn" class="icon-btn" title="Copy Link" style="width: 40px; height: 38px; border-radius: 0 8px 8px 0; border: 1px solid var(--glass-border); border-left: none; background: rgba(255,255,255,0.05); vertical-align: top;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="peers-list-container" style="margin-top: 14px;">
+            <label style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Active Collaborators</label>
+            <ul id="peers-list" class="peers-list" style="list-style: none; padding: 0; margin-top: 6px; font-size: 0.9rem; display: flex; flex-direction: column; gap: 8px;">
+              <li style="display: flex; align-items: center; gap: 8px;"><span class="user-bullet host" style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent-primary); display: inline-block;"></span>You (Host)</li>
+            </ul>
+          </div>
+          <button id="disconnect-collab-btn" class="secondary-btn" style="color: var(--error); border-color: rgba(239, 68, 68, 0.3); width: 100%; margin-top: 16px;">Disconnect Session</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GitHub Sync & CI/CD Modal -->
+    <div id="git-sync-modal" class="modal hidden">
+      <div class="modal-content glass-panel" style="max-width: 500px; width: 90%;">
+        <h2>GitHub Sync & CI/CD</h2>
+        <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 1rem;">Sync your generated Draw.io XML and exported PNG directly to your GitHub repository.</p>
+        
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label for="git-pat-input">GitHub Personal Access Token (PAT)</label>
+          <input type="password" id="git-pat-input" placeholder="ghp_..." autocomplete="off" />
+        </div>
+        
+        <div class="form-grid" style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; margin-bottom: 12px;">
+          <div class="form-group">
+            <label for="git-repo-input">Repository (owner/repo)</label>
+            <input type="text" id="git-repo-input" placeholder="e.g. octocat/hello-world" />
+          </div>
+          <div class="form-group">
+            <label for="git-branch-input">Branch</label>
+            <input type="text" id="git-branch-input" placeholder="e.g. main" value="main" />
+          </div>
+        </div>
+
+        <div class="form-grid" style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; margin-bottom: 16px;">
+          <div class="form-group">
+            <label for="git-xml-path-input">Diagram File Path</label>
+            <input type="text" id="git-xml-path-input" placeholder="docs/architecture.drawio" value="docs/architecture.drawio" />
+          </div>
+          <div class="form-group">
+            <label for="git-png-sync">Sync PNG Image?</label>
+            <select id="git-png-sync" class="glass-select" style="height: 42px; width: 100%; box-sizing: border-box; background-position: right 12px center;">
+              <option value="yes">Yes (recommended)</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="git-sync-status" class="hidden" style="padding: 10px; border-radius: 8px; font-size: 0.85rem; margin-top: 4px; margin-bottom: 12px; border: 1px solid transparent;"></div>
+
+        <div class="modal-actions" style="margin-bottom: 16px;">
+          <button id="close-git-sync-btn" class="secondary-btn">Cancel</button>
+          <button id="git-sync-action-btn" class="primary-btn">Push to GitHub</button>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--glass-border); margin: 16px 0;" />
+
+        <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 6px;">Automated CI/CD Workflow</h3>
+        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Add this GitHub Action to your repo (`.github/workflows/render-drawio.yml`) to automatically compile `.drawio` files to `.png` images on push.</p>
+        
+        <div class="code-container" style="background: rgba(0,0,0,0.4); max-height: 180px; padding: 12px; border-radius: 8px; border: 1px solid var(--glass-border); position: relative; margin-bottom: 12px;">
+          <button id="copy-cicd-btn" class="icon-btn copy-btn" style="top: 8px; right: 8px; padding: 6px; background: rgba(255,255,255,0.05);" title="Copy YAML">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+          <pre style="font-size: 0.75rem; line-height: 1.4;"><code id="cicd-yaml-content">name: Render Draw.io Diagrams
+on:
+  push:
+    paths:
+      - '**/*.drawio'
+jobs:
+  drawio-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+      - name: Render Draw.io Diagrams
+        uses: rlespinasse/drawio-export-action@v2
+        with:
+          path: docs/
+          format: png
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "docs: render drawio diagrams to png"</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
