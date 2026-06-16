@@ -1,0 +1,118 @@
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="1100">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+    
+    <!-- Boundary/Container Box -->
+    <mxCell id="boundary" value="API Application&#xa;[Container: Spring Boot / Java]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#8C8C8C;strokeWidth=2;dashed=1;align=left;verticalAlign=top;spacingLeft=20;spacingTop=10;fontColor=#8C8C8C;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="50" y="210" width="1120" height="580" as="geometry" />
+    </mxCell>
+
+    <!-- External Client: Web SPA -->
+    <mxCell id="web_spa" value="&lt;b&gt;Web Application&lt;/b&gt;&#xa;[Container: React/SPA]&#xa;&#xa;Provides the user interface for catalog browsing, shopping cart, and checkout." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168bd;fontColor=#ffffff;strokeColor=#0b4c8c;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="500" y="30" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Component: Auth Controller -->
+    <mxCell id="auth_controller" value="&lt;b&gt;Auth Controller&lt;/b&gt;&#xa;[Component: Spring MVC]&#xa;&#xa;Handles user registration, login, and JWT generation." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85bbf0;fontColor=#ffffff;strokeColor=#5c9cd8;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="100" y="280" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Component: Catalog Controller -->
+    <mxCell id="catalog_controller" value="&lt;b&gt;Catalog Controller&lt;/b&gt;&#xa;[Component: Spring MVC]&#xa;&#xa;Exposes REST endpoints for querying product catalog and search." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85bbf0;fontColor=#ffffff;strokeColor=#5c9cd8;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="500" y="280" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Component: Order Controller -->
+    <mxCell id="order_controller" value="&lt;b&gt;Order Controller&lt;/b&gt;&#xa;[Component: Spring MVC]&#xa;&#xa;Exposes endpoints to manage carts and process checkout orders." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85bbf0;fontColor=#ffffff;strokeColor=#5c9cd8;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="900" y="280" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Component: User Service -->
+    <mxCell id="user_service" value="&lt;b&gt;User Service&lt;/b&gt;&#xa;[Component: Spring Service]&#xa;&#xa;Manages user accounts, authorization roles, and profiles." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85bbf0;fontColor=#ffffff;strokeColor=#5c9cd8;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="100" y="580" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Component: Product Service -->
+    <mxCell id="product_service" value="&lt;b&gt;Product Service&lt;/b&gt;&#xa;[Component: Spring Service]&#xa;&#xa;Fetches product details, prices, and processes inventory updates." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85bbf0;fontColor=#ffffff;strokeColor=#5c9cd8;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="500" y="580" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Component: Payment Service -->
+    <mxCell id="payment_service" value="&lt;b&gt;Payment Service&lt;/b&gt;&#xa;[Component: Spring Service]&#xa;&#xa;Processes payments and integrates with external Stripe API." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#85bbf0;fontColor=#ffffff;strokeColor=#5c9cd8;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="900" y="580" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- External Database -->
+    <mxCell id="database" value="&lt;b&gt;Database&lt;/b&gt;&#xa;[Container: PostgreSQL]&#xa;&#xa;Stores relational data for products, customers, and transactions." style="shape=cylinder;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#1168bd;fontColor=#ffffff;strokeColor=#0b4c8c;align=center;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="500" y="880" width="220" height="140" as="geometry" />
+    </mxCell>
+
+    <!-- Edges & Edge Labels -->
+    
+    <!-- Web SPA -> Auth Controller -->
+    <mxCell id="edge1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="web_spa" target="auth_controller">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label1" value="HTTPS / JSON" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge1">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Web SPA -> Catalog Controller -->
+    <mxCell id="edge2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="web_spa" target="catalog_controller">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label2" value="HTTPS / JSON" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge2">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Web SPA -> Order Controller -->
+    <mxCell id="edge3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="web_spa" target="order_controller">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label3" value="HTTPS / JSON" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge3">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Auth Controller -> User Service -->
+    <mxCell id="edge4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="auth_controller" target="user_service">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label4" value="Method Call" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge4">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Catalog Controller -> Product Service -->
+    <mxCell id="edge5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="catalog_controller" target="product_service">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label5" value="Method Call" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge5">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Order Controller -> Payment Service -->
+    <mxCell id="edge6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="order_controller" target="payment_service">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label6" value="Method Call" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge6">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- User Service -> Database -->
+    <mxCell id="edge7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="user_service" target="database">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label7" value="JDBC / SQL" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge7">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- Product Service -> Database -->
+    <mxCell id="edge8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C8C8C;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="product_service" target="database">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="label8" value="JDBC / SQL" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="edge8">
+      <mxGeometry x="-0.2" y="15" relative="1" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>
