@@ -20,6 +20,9 @@ const downloadBtn = document.getElementById('download-btn');
 const fullscreenBtn = document.getElementById('fullscreen-btn');
 const fullscreenIcon = document.getElementById('fullscreen-icon');
 const outputPanel = document.querySelector('.output-panel');
+const saveDiagramBtn = document.getElementById('save-diagram-btn');
+const addPageBtn = document.getElementById('add-page-btn');
+const pagesList = document.getElementById('pages-list');
 
 // Follow-up Elements
 const savedProjectOverlay = document.getElementById('saved-project-overlay');
@@ -67,7 +70,10 @@ const configStatusText = document.getElementById('config-status-text');
 // --- State ---
 let personalApiKey = localStorage.getItem('gemini_api_key') || '';
 let isIframeReady = false;
-let currentXml = '';
+const EMPTY_DIAGRAM_XML = `<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>`;
+let diagramPages = [];
+let activePageId = '';
+let currentXml = EMPTY_DIAGRAM_XML;
 let lastProjectDescription = '';
 let isUsingSavedPd = false;
 
@@ -75,6 +81,7 @@ let isUsingSavedPd = false;
 let socket = null;
 let collabRoomId = '';
 let isIncomingUpdate = false;
+let incomingUpdateTimeout = null;
 
 // GitHub Sync Pending Promise
 let gitSyncPendingResolve = null;
@@ -98,7 +105,19 @@ updateConfigUI();
 window.addEventListener('message', (e) => {
   if (e.source === drawioIframe.contentWindow) {
     try {
-      const msg = JSON.parse(e.data);
+      let msg;
+      if (typeof e.data === 'string') {
+        try {
+          msg = JSON.parse(e.data);
+        } catch (err) {
+          return; // Ignore non-JSON strings
+        }
+      } else if (typeof e.data === 'object' && e.data !== null) {
+        msg = e.data;
+      } else {
+        return;
+      }
+
       if (msg.event === 'init') {
         isIframeReady = true;
         console.log('Draw.io iframe initialized');
@@ -123,17 +142,32 @@ window.addEventListener('message', (e) => {
         currentXml = msg.xml;
         xmlOutput.textContent = currentXml;
         
-        if (socket && socket.connected && !isIncomingUpdate) {
-          socket.emit('diagram-update', {
-            roomId: collabRoomId,
-            xml: currentXml,
-            level: 'canvas edit',
-            prompt: promptInput.value || lastProjectDescription
-          });
+        // Update active page XML
+        const activePage = diagramPages.find(p => p.id === activePageId);
+        if (activePage) {
+          activePage.xml = currentXml;
+          debounceSaveActiveDiagram();
+        }
+        
+        if (isIncomingUpdate) {
+          isIncomingUpdate = false;
+          if (incomingUpdateTimeout) {
+            clearTimeout(incomingUpdateTimeout);
+            incomingUpdateTimeout = null;
+          }
+        } else {
+          if (socket && socket.connected) {
+            socket.emit('diagram-update', {
+              roomId: collabRoomId,
+              xml: currentXml,
+              level: 'canvas edit',
+              prompt: promptInput.value || lastProjectDescription
+            });
+          }
         }
       }
     } catch (err) {
-      // Ignore parsing errors for unknown messages
+      console.error('Message handler error:', err);
     }
   }
 });
@@ -141,14 +175,18 @@ window.addEventListener('message', (e) => {
 function loadXmlToDrawIo(xml) {
   if (!isIframeReady) return;
   isIncomingUpdate = true;
+  
+  if (incomingUpdateTimeout) clearTimeout(incomingUpdateTimeout);
+  incomingUpdateTimeout = setTimeout(() => {
+    isIncomingUpdate = false;
+    incomingUpdateTimeout = null;
+  }, 1500); // safety fallback in case no autosave event is fired
+  
   drawioIframe.contentWindow.postMessage(JSON.stringify({
     action: 'load',
     xml: xml,
     autosave: 1
   }), '*');
-  setTimeout(() => {
-    isIncomingUpdate = false;
-  }, 800);
 }
 
 // --- UI Interactions ---
@@ -186,18 +224,19 @@ saveConfigBtn.addEventListener('click', async () => {
     saveConfigBtn.disabled = true;
     
     try {
-      // Validate key with a tiny request
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${newKey}`, {
+      // Validate key with a tiny request via proxy
+      const response = await fetch('/api/gemini-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          apiKey: newKey,
           contents: [{ role: "user", parts: [{ text: "hi" }] }]
         })
       });
       
       const data = await response.json();
-      if (data.error && data.error.code === 400 && data.error.message.includes('API key not valid')) {
-        throw new Error('Invalid API Key');
+      if (data.error) {
+        throw new Error(data.error.message || 'Invalid API Key');
       }
       
       // Success
@@ -206,7 +245,10 @@ saveConfigBtn.addEventListener('click', async () => {
       updateConfigUI();
       configModal.classList.add('hidden');
     } catch (err) {
-      if (errorMsg) errorMsg.classList.remove('hidden');
+      if (errorMsg) {
+        errorMsg.textContent = err.message || 'Invalid API Key. Please check and try again.';
+        errorMsg.classList.remove('hidden');
+      }
     } finally {
       saveConfigBtn.textContent = originalText;
       saveConfigBtn.disabled = false;
@@ -356,6 +398,40 @@ chatForm.addEventListener('submit', async (e) => {
   try {
     currentXml = await generateC4DiagramXml(promptToUse, level);
     
+    const activePage = diagramPages.find(p => p.id === activePageId);
+    let pageToLoad = activePage;
+    
+    if (activePage && !isDiagramXmlEmpty(activePage.xml)) {
+      // Current active page has data, so create a new page!
+      let maxNum = 0;
+      diagramPages.forEach(p => {
+        const namePart = p.id.replace('diagram_', '');
+        const num = parseInt(namePart);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      });
+      const nextNum = maxNum + 1;
+      const newId = `diagram_${nextNum}`;
+      const newName = `Diagram ${nextNum}`;
+      const newFilename = `diagram_${nextNum}.xml`;
+      
+      pageToLoad = {
+        id: newId,
+        name: newName,
+        filename: newFilename,
+        xml: currentXml
+      };
+      
+      diagramPages.push(pageToLoad);
+      activePageId = newId;
+    } else if (pageToLoad) {
+      pageToLoad.xml = currentXml;
+    }
+    
+    await saveDiagramToWorkspace(pageToLoad);
+    renderPagesBar();
+    
     // Update UI
     xmlOutput.textContent = currentXml;
     diagramEmptyState.style.display = 'none';
@@ -398,63 +474,47 @@ async function generateC4DiagramXml(prompt, level) {
     case 'context':
       levelSpecificInstructions = `You are generating a Level 1: System Context Diagram.
 FOCUS: Show the system in the center, surrounded by its users and external systems it interacts with. Do NOT show internal technical details like databases or microservices.
-STYLE RULES:
-- Target System: Use a single blue box (#1168bd).
-- Users: Use person/actor shapes.
-- External Systems: Use grey boxes (#999999).`;
+Node Types to use: "actor" (for people/users), "container" (for our main system), "external" (for third party services/systems).`;
       break;
     case 'container':
       levelSpecificInstructions = `You are generating a Level 2: Container Diagram.
 FOCUS: Show the high-level technical building blocks (containers) like web applications, databases, and microservices within the system, and how they communicate.
-STYLE RULES:
-- Internal Containers: Use blue boxes (#1168bd).
-- Users: Use person/actor shapes.
-- External Systems: Use grey boxes (#999999).`;
+Node Types to use: "actor" (for people/users), "container" (for web app, API service, microservices), "database" (for databases/caches), "external" (for external systems/third party services).`;
       break;
     case 'component':
       levelSpecificInstructions = `You are generating a Level 3: Component Diagram.
 FOCUS: Zoom into ONE specific container to show its internal components (e.g., controllers, services, repositories).
-STYLE RULES:
-- Components: Use lighter blue boxes (#85bbf0).
-- Container Boundary: Draw a large transparent bounding box with a dashed border around the components.
-- Keep external elements minimal if necessary, but focus heavily on the internal components.`;
-      break;
-    case 'code':
-      levelSpecificInstructions = `You are generating a Level 4: Code Diagram.
-FOCUS: Show the code-level implementation details (classes, interfaces, objects) of a specific component.
-STYLE RULES:
-- Use UML Class Diagram notation.
-- Represent classes with standard UML class shapes (showing attributes and methods).`;
-      break;
-    case 'kubernetes':
-      levelSpecificInstructions = `You are generating a Kubernetes Cluster Visualization Diagram.
-FOCUS: Represent the Kubernetes cluster resources including Ingress, Services, Deployments, ReplicaSets, Pods, and Persistent Volumes. Show namespace or cluster boundaries.
-STYLE RULES:
-- Cluster/Namespace Boundaries: Use a large bounding box with a dashed border.
-- Ingress: Use a coral box (#ff6b6b).
-- Services: Use a teal box (#009688) with rounded corners.
-- Pods/Deployments: Use blue boxes (#1168bd) nested inside their namespaces.
-- Persistent Volumes: Use grey database/cylinder shape (#999999).`;
+Node Types to use: "container" (for components), "database" (for local container databases/external systems).`;
       break;
     default:
       levelSpecificInstructions = `You are generating a C4 diagram.`;
   }
 
-  const systemInstruction = `You are an expert system architect. Your task is to generate valid Draw.io XML (mxGraphModel) for a C4 diagram based on the user's description.
-CRITICAL LAYOUT AND STYLING RULES:
-1. SPACING: You MUST space nodes far apart. Place nodes at least 350 pixels apart horizontally and 250 pixels vertically to prevent overlapping. Example: Node 1 (x="100" y="100"), Node 2 (x="500" y="100"), Node 3 (x="500" y="400").
-2. LARGE BOXES: Make all container boxes large enough to fit multiline text. Use width="220" and height="140" for standard boxes.
-3. EDGE LABELS: For relationships, make the text label a child of the edge. Use <mxGeometry x="-0.2" y="15" relative="1" as="geometry"/> so the text sits neatly below the line and does not overlap the line itself.
-4. TEXT WRAPPING: Ensure all shapes include "whiteSpace=wrap;html=1;" in their style.
-
+  const systemInstruction = `You are an expert system architect. Your task is to analyze the user's description and generate a clean, structured JSON representation of a C4 diagram.
+  
 ${levelSpecificInstructions}
 
-Return ONLY the raw <mxGraphModel>...</mxGraphModel> XML, without markdown formatting or code blocks.`;
+Return ONLY a valid JSON object matching the following structure:
+{
+  "diagramType": "${level}",
+  "nodes": [
+    { "id": "unique_node_id", "name": "Display Name", "type": "actor|container|database|external", "tech": "Technology or category (e.g. React, Node.js, PostgreSQL)", "description": "Brief description of what this does" }
+  ],
+  "edges": [
+    { "source": "source_node_id", "target": "target_node_id", "label": "Describe connection interaction (e.g., Uses, Sends requests)", "protocol": "e.g. HTTP/JSON, gRPC, JDBC" }
+  ]
+}
+
+Ensure all nodes have unique string IDs (no spaces, e.g. "api_service", "user"). Ensure all edges refer to existing node IDs.
+Do NOT include any markdown code formatting (like \`\`\`json) or trailing text. Return raw JSON text only.`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${activeKey}`, {
+    const response = await fetch('/api/gemini-proxy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-gemini-key': activeKey
+      },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: `${systemInstruction}\n\nUser Description: ${prompt}` }] }]
       })
@@ -463,12 +523,24 @@ Return ONLY the raw <mxGraphModel>...</mxGraphModel> XML, without markdown forma
     const data = await response.json();
     if (data.error) throw new Error(data.error.message);
     
-    let text = data.candidates[0].content.parts[0].text;
-    // Clean up if the model wrapped it in markdown
-    text = text.replace(/```xml/gi, '').replace(/```/g, '').trim();
-    return text;
+    let text = '';
+    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
+      text = data.candidates[0].content.parts[0].text;
+    } else {
+      throw new Error("Unable to generate response from Gemini API. The request might have been blocked by safety filters.");
+    }
+    
+    // Extract JSON block if LLM wrapped in code block
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      text = match[0];
+    }
+    
+    const graphData = JSON.parse(text.trim());
+    const generatedXml = layoutDiagram(graphData);
+    return generatedXml;
   } catch (err) {
-    console.error("API Call Failed", err);
+    console.error("API Call/Layout Failed", err);
     throw new Error(err.message || "Failed to generate diagram using API.");
   }
 }
@@ -484,18 +556,32 @@ If it describes a software architecture, system components, or a project layout,
 
 If it is a general conversation, greeting, or question NOT describing an architecture, respond to the user briefly and warmly.`;
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${activeKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: `${analysisInstruction}\n\nUser Message: ${prompt}` }] }]
-    })
-  });
-  
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  
-  return data.candidates[0].content.parts[0].text.trim();
+  try {
+    const response = await fetch('/api/gemini-proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-gemini-key': activeKey
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: `${analysisInstruction}\n\nUser Message: ${prompt}` }] }]
+      })
+    });
+    
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    
+    let text = '';
+    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
+      text = data.candidates[0].content.parts[0].text;
+    } else {
+      throw new Error("Unable to analyze message due to empty API response.");
+    }
+    return text.trim();
+  } catch (err) {
+    console.error("Analyze Call Failed", err);
+    throw new Error(err.message || "Failed to analyze prompt.");
+  }
 }
 
 // --- UI Interaction Event Listeners for New Features ---
@@ -541,108 +627,134 @@ closeGitSyncBtn.addEventListener('click', () => {
 async function handleRepoImport(files) {
   if (!files || files.length === 0) return;
   
-  let totalFiles = files.length;
-  let fileNames = [];
-  let fileExtensions = {};
-  let keyFiles = [];
+  if (!personalApiKey) {
+    addMessage("⚠️ API Key required. Please connect your Gemini API Key in the settings (gear icon in the top right) to analyze the codebase structure.", false);
+    configModal.classList.remove('hidden');
+    apiKeyInput.focus();
+    return;
+  }
   
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const path = file.webkitRelativePath || file.name;
-    const parts = path.split('/');
-    const name = parts[parts.length - 1];
+  // Show message indicator and enable loading state
+  loadingIndicator.classList.add('active');
+  document.getElementById('submit-btn').disabled = true;
+  addMessage("Scanning repository and parsing project files...", false);
+  
+  try {
+    const ignoreDirs = ['node_modules', '.git', '.venv', '.next', 'dist', 'build', 'target', 'bin', 'obj', 'venv', 'env', '__pycache__', '.idea', '.vscode'];
+    const configFilenames = [
+      'package.json', 'pom.xml', 'requirements.txt', 'go.mod', 'docker-compose.yml', 'docker-compose.yaml', 
+      'Dockerfile', 'Cargo.toml', 'mix.exs', 'build.gradle', 'Gemfile', 'composer.json',
+      'next.config.js', 'next.config.mjs', 'vite.config.js', 'vite.config.ts', 'tsconfig.json'
+    ];
     
-    fileNames.push(name);
-    
-    const ext = name.split('.').pop().toLowerCase();
-    if (ext && ext !== name) {
-      fileExtensions[ext] = (fileExtensions[ext] || 0) + 1;
+    // Determine the root name from the first path
+    let rootName = 'root';
+    for (let i = 0; i < files.length; i++) {
+      const path = files[i].webkitRelativePath || files[i].name;
+      const parts = path.split('/');
+      if (parts.length > 0 && parts[0]) {
+        rootName = parts[0];
+        break;
+      }
     }
     
-    // Check for key indicator files
-    if (name === 'package.json') keyFiles.push('Node.js (package.json)');
-    else if (name === 'requirements.txt') keyFiles.push('Python (requirements.txt)');
-    else if (name === 'pom.xml') keyFiles.push('Java Maven (pom.xml)');
-    else if (name === 'build.gradle') keyFiles.push('Java Gradle (build.gradle)');
-    else if (name === 'go.mod') keyFiles.push('Go Module (go.mod)');
-    else if (name === 'Dockerfile') keyFiles.push('Docker Containerization (Dockerfile)');
-    else if (name === 'docker-compose.yml') keyFiles.push('Multi-container Orchestration (docker-compose.yml)');
-    else if (name === 'next.config.js' || name === 'next.config.mjs') keyFiles.push('Next.js Framework');
-    else if (name === 'vite.config.js' || name === 'vite.config.ts') keyFiles.push('Vite Frontend Tooling');
-    else if (name === 'tsconfig.json') keyFiles.push('TypeScript configuration');
+    const tree = { name: rootName, type: 'directory', children: [] };
+    const configs = [];
+    let scannedFilesCount = 0;
+    
+    const yieldControl = () => new Promise(resolve => setTimeout(resolve, 0));
+    
+    for (let i = 0; i < files.length; i++) {
+      if (i > 0 && i % 500 === 0) {
+        await yieldControl();
+      }
+      
+      const file = files[i];
+      const path = file.webkitRelativePath || file.name;
+      const parts = path.split('/');
+      const name = parts[parts.length - 1];
+      
+      // Filter out ignored folders
+      const shouldIgnore = parts.some(p => ignoreDirs.includes(p));
+      if (shouldIgnore) continue;
+      
+      scannedFilesCount++;
+      
+      // Insert path into directory tree
+      insertPath(tree, parts);
+      
+      // Check if it is a configuration file we want to read
+      if (configFilenames.includes(name)) {
+        if (configs.length < 50) {
+          try {
+            const content = await file.text();
+            configs.push({
+              path: path,
+              name: name,
+              content: content
+            });
+          } catch (e) {
+            console.warn(`Failed to read file ${path}:`, e);
+          }
+        } else {
+          configs.push({
+            path: path,
+            name: name,
+            content: "[File content omitted: too many configuration files in codebase]"
+          });
+        }
+      }
+    }
+    
+    // Helper to insert paths into the tree
+    function insertPath(treeNode, pathParts) {
+      let current = treeNode;
+      // skip the root folder name itself if it matches treeNode.name
+      const startIdx = pathParts[0] === treeNode.name ? 1 : 0;
+      
+      for (let j = startIdx; j < pathParts.length; j++) {
+        const part = pathParts[j];
+        if (!part) continue;
+        
+        const isLast = (j === pathParts.length - 1);
+        
+        let child = current.children.find(c => c.name === part);
+        if (!child) {
+          child = {
+            name: part,
+            type: isLast ? 'file' : 'directory'
+          };
+          if (!isLast) {
+            child.children = [];
+          }
+          current.children.push(child);
+        }
+        current = child;
+      }
+    }
+    
+    if (scannedFilesCount === 0) {
+      addMessage("⚠️ No valid source files found in the uploaded folder.", false);
+      return;
+    }
+    
+    addMessage(`Analyzing config files and directory layout for ${scannedFilesCount} source files...`, false);
+    
+    const detailedDescription = await analyzeCodebaseWithGemini(configs, tree);
+    
+    // Update input area with detailed architectural analysis
+    promptInput.value = detailedDescription;
+    promptInput.focus();
+    
+    addMessage(`Successfully analyzed codebase! Gemini has auto-generated a rich, detailed system architecture description in the input field. Select a Diagram Level and click the Generate button to design it!`, false);
+    
+  } catch (err) {
+    addMessage(`⚠️ Repository import or analysis failed: ${err.message}`, false);
+    console.error(err);
+  } finally {
+    loadingIndicator.classList.remove('active');
+    document.getElementById('submit-btn').disabled = false;
   }
-
-  // Detect tech stack based on file extensions and key files
-  let techStack = [];
-  let backend = '';
-  let frontend = '';
-  let db = '';
-  
-  if (fileExtensions['js'] || fileExtensions['jsx'] || fileExtensions['ts'] || fileExtensions['tsx']) {
-    techStack.push('JavaScript/TypeScript');
-  }
-  if (fileExtensions['py']) techStack.push('Python');
-  if (fileExtensions['java']) techStack.push('Java');
-  if (fileExtensions['go']) techStack.push('Go');
-  
-  // Specific checks
-  const keyFilesStr = fileNames.join(' ');
-  
-  // Frontends
-  if (keyFiles.some(f => f.includes('Next.js'))) {
-    frontend = 'Next.js Frontend';
-  } else if (keyFilesStr.includes('React') || fileExtensions['jsx'] || fileExtensions['tsx']) {
-    frontend = 'React Frontend';
-  } else if (keyFilesStr.includes('Vue') || fileExtensions['vue']) {
-    frontend = 'Vue.js Frontend';
-  } else if (fileExtensions['html']) {
-    frontend = 'Static HTML/CSS Frontend';
-  }
-  
-  // Backends
-  if (keyFiles.some(f => f.includes('requirements.txt')) || fileNames.some(n => n.includes('main.py') || n.includes('app.py'))) {
-    backend = 'Python Web Service (FastAPI/Flask)';
-  } else if (keyFiles.some(f => f.includes('pom.xml') || f.includes('build.gradle'))) {
-    backend = 'Spring Boot Backend';
-  } else if (keyFiles.some(f => f.includes('go.mod'))) {
-    backend = 'Go API backend';
-  } else if (keyFiles.some(f => f.includes('package.json'))) {
-    backend = 'Node.js/Express Backend';
-  }
-
-  // Database detection from keywords in file names
-  const allNamesLower = keyFilesStr.toLowerCase();
-  if (allNamesLower.includes('mongo') || allNamesLower.includes('mongoose')) db = 'MongoDB database';
-  else if (allNamesLower.includes('postgres') || allNamesLower.includes('pg')) db = 'PostgreSQL database';
-  else if (allNamesLower.includes('mysql')) db = 'MySQL database';
-  else if (allNamesLower.includes('sqlite')) db = 'SQLite database';
-  else if (allNamesLower.includes('redis')) db = 'Redis cache';
-  
-  // Generate description prompt
-  let detectedSummary = `A software project composed of ${totalFiles} files. `;
-  
-  let partsList = [];
-  if (frontend) partsList.push(`a client-side ${frontend}`);
-  if (backend) partsList.push(`a server-side ${backend}`);
-  if (db) partsList.push(`connected to a ${db}`);
-  if (keyFiles.some(f => f.includes('Dockerfile') || f.includes('docker-compose'))) {
-    partsList.push(`containerized with Docker`);
-  }
-  
-  if (partsList.length > 0) {
-    detectedSummary += "It consists of " + partsList.join(', ') + ". ";
-  } else {
-    detectedSummary += `It uses a tech stack including ${techStack.slice(0, 3).join(', ')}. `;
-  }
-  
-  detectedSummary += "Users interact with the frontend, which sends REST API requests to the backend, and the backend queries the database for storage.";
-  
-  // Update textarea
-  promptInput.value = detectedSummary;
-  promptInput.focus();
-  
-  // Add chat bubble
-  addMessage(`Scanned ${totalFiles} repository files. Tech stack detected: ${techStack.join(', ') || 'Unknown'}. Automatically generated a system architecture description for you! Feel free to modify it and select a Diagram Level to generate.`, false);
 }
 
 
@@ -750,7 +862,7 @@ function joinCollabRoom(roomId) {
     });
     
     socket.on('disconnect', () => {
-      showCollabStatus('Disconnected', 'disconnected');
+      handleCollabDisconnect();
     });
     
     socket.on('connect_error', (err) => {
@@ -914,11 +1026,18 @@ async function pushFileToGithub(token, repo, branch, path, content, commitMessag
   // Get file sha if it exists
   let sha = '';
   try {
-    const getRes = await fetch(`${url}?ref=${branch}`, {
-      headers: {
-        'Authorization': `token ${token}`,
-        'Accept': 'application/vnd.github.v3+json'
-      }
+    const getRes = await fetch('/api/github-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: `${url}?ref=${branch}`,
+        method: 'GET',
+        headers: {
+          'Authorization': `token ${token}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'Blueprint-io-Client'
+        }
+      })
     });
     if (getRes.ok) {
       const fileData = await getRes.json();
@@ -928,8 +1047,15 @@ async function pushFileToGithub(token, repo, branch, path, content, commitMessag
     // File doesn't exist, this is fine
   }
   
-  // Encode content to base64 if it's text
-  const base64Content = isBinary ? content : btoa(unescape(encodeURIComponent(content)));
+  // Encode content to base64 using TextEncoder (standard, non-deprecated method)
+  let base64Content;
+  if (isBinary) {
+    base64Content = content;
+  } else {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(content);
+    base64Content = btoa(String.fromCharCode(...data));
+  }
   
   const body = {
     message: commitMessage,
@@ -941,14 +1067,20 @@ async function pushFileToGithub(token, repo, branch, path, content, commitMessag
     body.sha = sha;
   }
   
-  const putRes = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
+  const putRes = await fetch('/api/github-proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: url,
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Blueprint-io-Client'
+      },
+      body: body
+    })
   });
   
   if (!putRes.ok) {
@@ -985,9 +1117,418 @@ function exportPngFromDrawIo() {
   });
 }
 
+// --- Diagram Pages Bar and Persistence Helper Functions ---
+
+function isDiagramXmlEmpty(xml) {
+  if (!xml) return true;
+  if (xml === EMPTY_DIAGRAM_XML) return true;
+  // If there are 2 or fewer mxCell tags, it's considered empty
+  const cellCount = (xml.match(/<mxCell/g) || []).length;
+  return cellCount <= 2;
+}
+
+function layoutDiagram(graph) {
+  const { diagramType, nodes, edges } = graph;
+  
+  if (!nodes || !Array.isArray(nodes)) return EMPTY_DIAGRAM_XML;
+  
+  // Classify layers
+  const inEdges = {};
+  const outEdges = {};
+  nodes.forEach(n => {
+    inEdges[n.id] = [];
+    outEdges[n.id] = [];
+  });
+  if (edges && Array.isArray(edges)) {
+    edges.forEach(e => {
+      if (inEdges[e.target]) inEdges[e.target].push(e);
+      if (outEdges[e.source]) outEdges[e.source].push(e);
+    });
+  }
+  
+  // Assign rows/levels
+  const levels = {};
+  nodes.forEach(n => {
+    const typeLower = (n.type || '').toLowerCase();
+    if (typeLower === 'actor' || typeLower === 'user' || typeLower === 'person') {
+      levels[n.id] = 0;
+    } else if (typeLower === 'database' || typeLower === 'db' || typeLower === 'cache' || typeLower === 'external' || typeLower === 'third-party') {
+      levels[n.id] = 3;
+    } else {
+      // General component or container
+      const isClient = inEdges[n.id] && inEdges[n.id].length === 0;
+      if (isClient) {
+        levels[n.id] = 1;
+      } else {
+        levels[n.id] = 2;
+      }
+    }
+  });
+  
+  // Group nodes by level
+  const rows = [[], [], [], []];
+  nodes.forEach(n => {
+    const lvl = levels[n.id] !== undefined ? levels[n.id] : 2;
+    rows[lvl].push(n);
+  });
+  
+  // Remove empty rows
+  const activeRows = rows.filter(r => r.length > 0);
+  
+  // Compute positions
+  const rowHeight = 280;
+  const colWidth = 380;
+  const nodeWidth = 220;
+  const nodeHeight = 140;
+  
+  const positions = {};
+  activeRows.forEach((rowNodes, rowIndex) => {
+    const rowY = rowIndex * rowHeight + 100;
+    const rowWidthTotal = rowNodes.length * colWidth;
+    rowNodes.forEach((node, colIndex) => {
+      const nodeX = colIndex * colWidth + (800 - rowWidthTotal) / 2 + 100;
+      positions[node.id] = { x: nodeX, y: rowY };
+    });
+  });
+  
+  // Build XML elements
+  let xml = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>';
+  
+  nodes.forEach(n => {
+    const pos = positions[n.id] || { x: 100, y: 100 };
+    let style = "whiteSpace=wrap;html=1;align=center;verticalAlign=top;spacingTop=8;fontSize=12;";
+    const typeLower = (n.type || '').toLowerCase();
+    
+    // Choose styling/colors based on type
+    if (typeLower === 'actor' || typeLower === 'user' || typeLower === 'person') {
+      style += "shape=mxgraph.basic.person;fillColor=#1168bd;strokeColor=#0b4884;fontColor=#ffffff;";
+    } else if (typeLower === 'database' || typeLower === 'db') {
+      style += "shape=cylinder;fillColor=#2b2b2b;strokeColor=#1a1a1a;fontColor=#ffffff;";
+    } else if (typeLower === 'external' || typeLower === 'third-party') {
+      style += "fillColor=#7a7a7a;strokeColor=#555555;fontColor=#ffffff;";
+    } else {
+      // standard container
+      style += "fillColor=#1168bd;strokeColor=#0b4884;fontColor=#ffffff;rounded=1;";
+    }
+    
+    // Format text
+    const label = `<b>${n.name || 'Component'}</b><br/>[${n.tech || n.type || 'Container'}]<br/><br/>${n.description || ''}`;
+    const safeLabel = escapeXml(label);
+    
+    xml += `<mxCell id="${n.id}" value="${safeLabel}" style="${style}" vertex="1" parent="1">`;
+    xml += `<mxGeometry x="${pos.x}" y="${pos.y}" width="${nodeWidth}" height="${nodeHeight}" as="geometry"/>`;
+    xml += `</mxCell>`;
+  });
+  
+  if (edges && Array.isArray(edges)) {
+    edges.forEach((e, idx) => {
+      const edgeId = `edge_${idx}`;
+      const label = e.label ? `<b>${e.label}</b>` + (e.protocol ? `<br/>[${e.protocol}]` : '') : '';
+      const safeLabel = escapeXml(label);
+      
+      let style = "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#1168bd;strokeWidth=2;fontSize=10;";
+      xml += `<mxCell id="${edgeId}" value="${safeLabel}" style="${style}" edge="1" parent="1" source="${e.source}" target="${e.target}">`;
+      xml += `<mxGeometry relative="1" as="geometry">`;
+      xml += `<mxPoint as="offset" y="15"/>`;
+      xml += `</mxGeometry>`;
+      xml += `</mxCell>`;
+    });
+  }
+  
+  xml += '</root></mxGraphModel>';
+  return xml;
+}
+
+function escapeXml(unsafe) {
+  return (unsafe || '').replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+    }
+  });
+}
+
+async function saveDiagramToWorkspace(page) {
+  try {
+    const response = await fetch('/api/save-diagram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: page.filename, xml: page.xml })
+    });
+    if (!response.ok) {
+      throw new Error('Save API returned error');
+    }
+  } catch (err) {
+    console.error('Failed to save diagram to workspace:', err);
+  }
+}
+
+let saveTimeout = null;
+function debounceSaveActiveDiagram() {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    const activePage = diagramPages.find(p => p.id === activePageId);
+    if (activePage) {
+      saveDiagramToWorkspace(activePage);
+    }
+  }, 1000);
+}
+
+function renderPagesBar() {
+  if (!pagesList) return;
+  pagesList.innerHTML = '';
+  
+  diagramPages.forEach(page => {
+    const tab = document.createElement('div');
+    tab.className = `page-tab ${page.id === activePageId ? 'active' : ''}`;
+    tab.dataset.id = page.id;
+    
+    const title = document.createElement('span');
+    title.textContent = page.name;
+    title.style.cursor = 'pointer';
+    title.addEventListener('click', () => switchPage(page.id));
+    tab.appendChild(title);
+    
+    if (diagramPages.length > 1) {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'page-close-btn';
+      closeBtn.innerHTML = '&times;';
+      closeBtn.title = 'Delete Page';
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deletePage(page.id);
+      });
+      tab.appendChild(closeBtn);
+    }
+    
+    pagesList.appendChild(tab);
+  });
+}
+
+async function switchPage(pageId) {
+  if (pageId === activePageId) return;
+  activePageId = pageId;
+  const page = diagramPages.find(p => p.id === pageId);
+  if (page) {
+    currentXml = page.xml;
+    xmlOutput.textContent = currentXml;
+    renderPagesBar();
+    loadXmlToDrawIo(currentXml);
+  }
+}
+
+async function deletePage(pageId) {
+  const pageIndex = diagramPages.findIndex(p => p.id === pageId);
+  if (pageIndex === -1) return;
+  
+  const pageToDelete = diagramPages[pageIndex];
+  
+  try {
+    await fetch('/api/delete-diagram', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: pageToDelete.filename })
+    });
+  } catch (err) {
+    console.error('Failed to delete diagram from workspace:', err);
+  }
+  
+  diagramPages.splice(pageIndex, 1);
+  
+  if (activePageId === pageId) {
+    const newActiveIndex = Math.max(0, pageIndex - 1);
+    activePageId = diagramPages[newActiveIndex].id;
+    currentXml = diagramPages[newActiveIndex].xml;
+  }
+  
+  renderPagesBar();
+  xmlOutput.textContent = currentXml;
+  loadXmlToDrawIo(currentXml);
+  addMessage(`Deleted diagram page "${pageToDelete.name}".`, false);
+}
+
+async function loadDiagramsFromWorkspace() {
+  try {
+    const res = await fetch('/api/list-diagrams');
+    if (res.ok) {
+      const data = await res.json();
+      diagramPages = data && data.length > 0 ? data : [];
+      
+      // Determine the next page number to avoid naming conflicts
+      let maxNum = 0;
+      diagramPages.forEach(p => {
+        const namePart = p.id.replace('diagram_', '');
+        const num = parseInt(namePart);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      });
+      const nextNum = maxNum + 1;
+      const newId = `diagram_${nextNum}`;
+      const newName = `Diagram ${nextNum}`;
+      const newFilename = `diagram_${nextNum}.xml`;
+      
+      const newPage = {
+        id: newId,
+        name: newName,
+        filename: newFilename,
+        xml: EMPTY_DIAGRAM_XML
+      };
+      
+      diagramPages.push(newPage);
+      activePageId = newId;
+      currentXml = EMPTY_DIAGRAM_XML;
+      
+      renderPagesBar();
+      xmlOutput.textContent = currentXml;
+      if (isIframeReady) {
+        loadXmlToDrawIo(currentXml);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load workspace diagrams:', err);
+  }
+}
+
+// Bind Save Diagram button listener
+saveDiagramBtn.addEventListener('click', async () => {
+  const activePage = diagramPages.find(p => p.id === activePageId);
+  if (!activePage) return;
+  
+  const spanEl = saveDiagramBtn.querySelector('span');
+  const svgEl = saveDiagramBtn.querySelector('svg');
+  const originalText = spanEl.textContent;
+  
+  spanEl.textContent = 'Saving...';
+  saveDiagramBtn.disabled = true;
+  
+  try {
+    await saveDiagramToWorkspace(activePage);
+    
+    // Success feedback
+    const originalSvg = svgEl.innerHTML;
+    svgEl.innerHTML = `<polyline points="20 6 9 17 4 12"></polyline>`;
+    spanEl.textContent = 'Saved!';
+    
+    setTimeout(() => {
+      svgEl.innerHTML = originalSvg;
+      spanEl.textContent = originalText;
+      saveDiagramBtn.disabled = false;
+    }, 2000);
+    
+    addMessage(`Diagram page "${activePage.name}" saved to local file "${activePage.filename}"!`, false);
+  } catch (err) {
+    addMessage(`Failed to save diagram: ${err.message}`, false);
+    spanEl.textContent = originalText;
+    saveDiagramBtn.disabled = false;
+  }
+});
+
+// Bind Add Page button listener
+addPageBtn.addEventListener('click', async () => {
+  let maxNum = 0;
+  diagramPages.forEach(p => {
+    const namePart = p.id.replace('diagram_', '');
+    const num = parseInt(namePart);
+    if (!isNaN(num) && num > maxNum) {
+      maxNum = num;
+    }
+  });
+  const nextNum = maxNum + 1;
+  const newId = `diagram_${nextNum}`;
+  const newName = `Diagram ${nextNum}`;
+  const newFilename = `diagram_${nextNum}.xml`;
+  
+  const newPage = {
+    id: newId,
+    name: newName,
+    filename: newFilename,
+    xml: EMPTY_DIAGRAM_XML
+  };
+  
+  diagramPages.push(newPage);
+  activePageId = newId;
+  currentXml = EMPTY_DIAGRAM_XML;
+  
+  await saveDiagramToWorkspace(newPage);
+  renderPagesBar();
+  xmlOutput.textContent = currentXml;
+  loadXmlToDrawIo(currentXml);
+  
+  addMessage(`Created new diagram page "${newName}"!`, false);
+});
+
+// Deep codebase analysis helper using Gemini
+async function analyzeCodebaseWithGemini(configs, tree) {
+  if (!personalApiKey) {
+    throw new Error("API Key is required to perform deep codebase architecture reasoning. Please configure your key in settings.");
+  }
+  
+  // Format configurations text
+  let configsSummary = "";
+  configs.forEach(cfg => {
+    configsSummary += `\n--- File: ${cfg.path} ---\n${cfg.content}\n`;
+  });
+  
+  // Format directory tree briefly
+  let treeText = "";
+  if (tree && tree.children) {
+    treeText = JSON.stringify(tree, (key, val) => {
+      if (key === 'size') return undefined; // remove file sizes to save tokens
+      return val;
+    }, 2);
+  }
+
+  const analysisInstruction = `You are a Principal Software Architect. Your task is to analyze the folder structure and raw configuration files of a codebase and write a highly detailed, comprehensive architectural description of the system.
+  
+Do NOT generalize or use generic templates. Identify all specific technologies, languages, libraries, and frameworks declared in the files.
+Be extremely thorough. Ensure you call out:
+1. Programming languages, package versions, and client-side web frameworks.
+2. Backend API frameworks, databases, caches, queues, and workflows (e.g. Restate, Aidbox, PostgreSQL, Redis, RabbitMQ, Kafka).
+3. Service-to-service communication protocols and data flows.
+4. Any external integrations or SaaS providers.
+
+Respond with a rich, structured description detailing these components and how they connect. Avoid placeholders like "database". Write "Aidbox FHIR database" or "Restate workflow handler" if found in the files.`;
+
+  const response = await fetch('/api/gemini-proxy', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-gemini-key': personalApiKey
+    },
+    body: JSON.stringify({
+      contents: [{
+        role: "user",
+        parts: [{
+          text: `${analysisInstruction}\n\n=== Directory Tree ===\n${treeText}\n\n=== Configuration Files ===\n${configsSummary}`
+        }]
+      }]
+    })
+  });
+  
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error?.message || 'Gemini proxy returned an error during codebase analysis');
+  }
+  
+  const resData = await response.json();
+  if (resData.candidates && resData.candidates[0] && resData.candidates[0].content && resData.candidates[0].content.parts && resData.candidates[0].content.parts[0]) {
+    return resData.candidates[0].content.parts[0].text.trim();
+  } else {
+    throw new Error("Unable to generate codebase analysis from Gemini API.");
+  }
+}
+
+
 
 // --- On Load Check for Invitation Room ID ---
 window.addEventListener('load', () => {
+  // Load workspace diagrams
+  loadDiagramsFromWorkspace();
+
   const urlParams = new URLSearchParams(window.location.search);
   const roomParam = urlParams.get('room');
   if (roomParam) {
